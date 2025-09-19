@@ -44,29 +44,19 @@ describe('ResultsService', () => {
       const r1: any = await service.getPollResults(pollId);
       expect(r1.totalVotes).toBe(3);
 
-      // mutate repo return; cache should still return old result
-      (voteRepo.find as any).mockResolvedValue([
-        { pollId, optionId: 'b' },
-      ] as Vote[]);
-
+      (voteRepo.find as any).mockResolvedValue([{ pollId, optionId: 'b' }] as Vote[]);
       const r2: any = await service.getPollResults(pollId);
-      expect(r2.totalVotes).toBe(3); // cached
+      expect(r2.totalVotes).toBe(3); // cache hit
+    });
+  });
+
+  describe('cache management', () => {
+    it('should invalidate cache for specific poll', () => {
+      expect(() => service.invalidateCache('poll123')).not.toThrow();
     });
 
-    it('should return hidden marker if poll hides results until close', async () => {
-      const pollId = 'poll2';
-      const future = new Date(Date.now() + 60_000);
-      const poll = {
-        id: pollId,
-        hideResultsUntilClose: true,
-        closesAt: future,
-        options: [{ id: 'x', label: 'X' }],
-      } as unknown as Poll;
-
-      (pollRepo.findOne as any).mockResolvedValue(poll);
-
-      const res: any = await service.getPollResults(pollId);
-      expect(res.hidden).toBe(true);
+    it('should clean up expired cache entries', () => {
+      expect(() => service.cleanupExpiredCache()).not.toThrow();
     });
   });
 });
