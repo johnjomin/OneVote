@@ -131,6 +131,12 @@ export class PollsService {
 
       this.logger.log(`Vote cast successfully for poll ${pollId}`);
 
+      // Invalidate cache for this poll
+      this.resultsService.invalidateCache(pollId);
+
+      // Broadcast vote event for SSE
+      this.broadcastVoteEvent(pollId);
+
       return { message: 'Vote cast successfully' };
 
     } 
@@ -146,9 +152,7 @@ export class PollsService {
     }
   }
 
-  /**
-   * Get poll results (delegates to ResultsService)
-   */
+  // Get poll results (delegates to ResultsService)
   async getPollResults(pollId: string) {
     // Verify poll exists
     const poll = await this.pollRepository.findOne({ where: { id: pollId } });
@@ -159,11 +163,19 @@ export class PollsService {
     return this.resultsService.getPollResults(pollId);
   }
 
+  
+  // Broadcast vote event to SSE subscribers
+  private async broadcastVoteEvent(pollId: string): Promise<void> {
+    try {
+      const results = await this.resultsService.getPollResults(pollId);
+      this.voteEvents$.next({ pollId, results });
+    } catch (error) {
+      this.logger.error(`Error broadcasting vote event for poll ${pollId}: ${error.message}`);
+    }
+  }
 
 
-  /**
-   * Map Poll entity to response DTO
-   */
+  // Map Poll entity to response DTO
   private mapPollToResponse(poll: Poll): PollResponseDto {
     return {
       id: poll.id,
