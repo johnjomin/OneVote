@@ -3,7 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Vote } from '../entities/vote.entity';
 import { Poll } from '../entities/poll.entity';
-import { PollResultsDto, OptionResultDto, HiddenResultsDto } from '../dtos/poll-response.dto';
+import { PollResultsResponseDto as PollResultsDto, OptionResultDto, HiddenResultsDto } from '../dtos/poll-response.dto';
 
 // Simple in-memory cache with TTL
 interface CacheEntry {
@@ -154,6 +154,7 @@ export class ResultsService {
     this.logger.debug(`Computed results for poll ${poll.id} in ${computeTime}ms`);
 
     return {
+      pollId: poll.id,
       total: totalVotes,
       options: optionResults,
       voteVelocityPerMinLast5: voteVelocity,

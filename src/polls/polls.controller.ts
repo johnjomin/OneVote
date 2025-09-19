@@ -19,7 +19,7 @@ import {
 import { PollsService } from './polls.service';
 import { CreatePollDto } from './dtos/create-poll.dto';
 import { VoteDto } from './dtos/vote.dto';
-import { PollResponseDto } from './dtos/poll-response.dto';
+import { PollResponseDto, PollResultsResponseDto as PollResultsDto, HiddenResultsDto } from './dtos/poll-response.dto';
 
 @ApiTags('polls')
 @Controller('polls')

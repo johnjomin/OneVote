@@ -18,6 +18,9 @@ export class PollResponseDto {
   @ApiProperty({ description: 'ISO timestamp when the poll closes' })
   closesAt!: string;
 
+  @ApiProperty({ description: 'ISO timestamp when the poll was created' })
+  createdAt!: string;
+
   @ApiPropertyOptional({ description: 'Hide results until close', default: false })
   hideResultsUntilClose?: boolean;
 
