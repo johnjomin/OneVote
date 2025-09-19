@@ -9,6 +9,8 @@ import {
 import { Poll } from './poll.entity';
 import { Vote } from './vote.entity';
 
+// One answer option for a poll.
+// Simple strings are fine here.
 @Entity('poll_options')
 export class PollOption {
   @PrimaryGeneratedColumn('uuid')

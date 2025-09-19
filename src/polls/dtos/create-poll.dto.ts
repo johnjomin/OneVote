@@ -3,40 +3,35 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class CreatePollDto {
   @ApiProperty({
-    description: 'The poll question',
+    description: 'The poll question people will answer',
     example: 'What is your favorite programming language?',
-    minLength: 1,
-    maxLength: 500,
   })
   @IsString()
-  @MinLength(1)
-  @MaxLength(500)
-  question: string;
+  @MinLength(1, { message: 'question must not be empty' })
+  @MaxLength(300, { message: 'question is too long (max 300 chars)' })
+  question!: string;
 
   @ApiProperty({
-    description: 'Array of poll options (minimum 2 required)',
-    example: ['JavaScript', 'TypeScript', 'Python', 'Go'],
-    minItems: 2,
+    description: 'List of answer options (need at least 2)',
+    example: ['JavaScript', 'Python', 'Go'],
   })
   @IsArray()
-  @ArrayMinSize(2, { message: 'Poll must have at least 2 options' })
-  @IsString({ each: true })
-  @MinLength(1, { each: true })
-  @MaxLength(200, { each: true })
-  options: string[];
+  @ArrayMinSize(2, { message: 'please provide at least two options' })
+  @IsString({ each: true, message: 'each option must be a string' })
+  options!: string[];
 
   @ApiProperty({
     description: 'ISO timestamp when the poll closes',
-    example: '2024-12-31T23:59:59.000Z',
+    example: '2030-12-31T23:59:59.000Z',
   })
-  @IsDateString()
-  closesAt: string;
+  @IsDateString({}, { message: 'closesAt must be a valid ISO date string' })
+  closesAt!: string;
 
   @ApiPropertyOptional({
-    description: 'Whether to hide results until poll closes',
+    description: 'If true, hide results until the poll closes',
     default: false,
   })
   @IsOptional()
-  @IsBoolean()
+  @IsBoolean({ message: 'hideResultsUntilClose must be true or false' })
   hideResultsUntilClose?: boolean;
 }

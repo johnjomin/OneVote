@@ -9,6 +9,9 @@ import {
 import { PollOption } from './poll-option.entity';
 import { Vote } from './vote.entity';
 
+
+// The main Poll entity.
+// Note: we keep relations simple and obvious. No magic.
 @Entity('polls')
 export class Poll {
   @PrimaryGeneratedColumn('uuid')
@@ -32,7 +35,7 @@ export class Poll {
   // One poll has many options
   @OneToMany(() => PollOption, (option) => option.poll, {
     cascade: true,
-    eager: true,
+    eager: true, // handy: return options with the poll by default
   })
   options: PollOption[];
 
