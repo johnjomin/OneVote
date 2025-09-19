@@ -52,3 +52,11 @@ export class PollResultsResponseDto {
   @ApiProperty({ description: 'Votes per minute in the last 5 minutes', example: 2.4 })
   voteVelocityPerMinLast5!: number;
 }
+
+export class HiddenResultsDto {
+  @ApiProperty({ description: 'If true, results are hidden because poll not closed yet' })
+  hidden!: boolean;
+
+  @ApiProperty({ description: 'When the poll will close (ISO)' })
+  closesAt!: string;
+}
