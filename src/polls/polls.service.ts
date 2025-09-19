@@ -1,13 +1,18 @@
 import {
   Injectable,
   Logger,
+  NotFoundException,
   BadRequestException,
+  ConflictException,
+  UnprocessableEntityException,
 } from '@nestjs/common';
-import { InjectRepository, DataSource} from '@nestjs/typeorm';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository, DataSource } from 'typeorm';
 import { Poll } from './entities/poll.entity';
 import { PollOption } from './entities/poll-option.entity';
 import { Vote } from './entities/vote.entity';
 import { CreatePollDto } from './dtos/create-poll.dto';
+import { VoteDto } from './dtos/vote.dto';
 import { PollResponseDto } from './dtos/poll-response.dto';
 import { Subject } from 'rxjs';
 
@@ -24,7 +29,11 @@ export class PollsService {
   // Subject for broadcasting vote events to SSE clients
   public voteEvents$ = new Subject<VoteEvent>();
 
-  constructor(@InjectRepository(Vote)
+  constructor(
+    @InjectRepository(Poll)
+    private pollRepository: Repository<Poll>,
+    
+    @InjectRepository(Vote)
     private dataSource: DataSource,
   ) {}
 
@@ -77,6 +86,65 @@ export class PollsService {
 
     return this.mapPollToResponse(result);
   }
+
+   /*
+    Cast a vote for a poll option
+    Uses transaction and unique constraint to prevent duplicate votes
+   */
+  async castVote(pollId: string, voteDto: VoteDto): Promise<{ message: string }> {
+    this.logger.log(`User ${voteDto.userUuid} voting for option ${voteDto.optionId} in poll ${pollId}`);
+
+    // Find poll and verify it exists and is open
+    const poll = await this.pollRepository.findOne({
+      where: { id: pollId },
+      relations: ['options'],
+    });
+
+    if (!poll) {
+      throw new NotFoundException(`Poll with ID ${pollId} not found`);
+    }
+
+    // Check if poll is still open
+    if (new Date() >= poll.closesAt) {
+      throw new UnprocessableEntityException('Poll has closed');
+    }
+
+    // Verify the option belongs to this poll
+    const option = poll.options.find(opt => opt.id === voteDto.optionId);
+    if (!option) {
+      throw new NotFoundException(`Option with ID ${voteDto.optionId} not found in this poll`);
+    }
+
+    try {
+      // Use transaction to ensure consistency
+      await this.dataSource.transaction(async manager => {
+        const vote = manager.create(Vote, {
+          userUuid: voteDto.userUuid,
+          pollId: pollId,
+          optionId: voteDto.optionId,
+        });
+
+        await manager.save(vote);
+      });
+
+      this.logger.log(`Vote cast successfully for poll ${pollId}`);
+
+      return { message: 'Vote cast successfully' };
+
+    } 
+    catch (error) {
+      // Handle duplicate vote constraint violation
+      if (error.code === 'SQLITE_CONSTRAINT_UNIQUE' || error.message.includes('UNIQUE constraint failed')) {
+        this.logger.warn(`Duplicate vote attempt by user ${voteDto.userUuid} for poll ${pollId}`);
+        throw new ConflictException('User has already voted in this poll');
+      }
+
+      this.logger.error(`Error casting vote: ${error.message}`, error.stack);
+      throw error;
+    }
+  }
+
+
 
   /**
    * Map Poll entity to response DTO
