@@ -6,13 +6,12 @@ import { ResultsService } from './results/results.service';
 import { Poll } from './entities/poll.entity';
 import { PollOption } from './entities/poll-option.entity';
 import { Vote } from './entities/vote.entity';
+import { CreatePollDto } from './dtos/create-poll.dto';
 
 describe('PollsService', () => {
   let service: PollsService;
-  let pollRepository: Repository<Poll>;
-  let optionRepository: Repository<PollOption>;
-  let voteRepository: Repository<Vote>;
-  let resultsService: ResultsService;
+  let pollRepository: jest.Mocked<Repository<Poll>>;
+  let optionRepository: jest.Mocked<Repository<PollOption>>;
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -20,28 +19,61 @@ describe('PollsService', () => {
         PollsService,
         {
           provide: ResultsService,
+          useValue: { getPollResults: jest.fn() },
+        },
+        {
+          provide: getRepositoryToken(Poll),
           useValue: {
-            getPollResults: jest.fn(),
+            create: jest.fn(),
+            save: jest.fn(),
+            findOne: jest.fn(),
           },
         },
-        { provide: getRepositoryToken(Poll), useValue: {} },
-        { provide: getRepositoryToken(PollOption), useValue: {} },
-        { provide: getRepositoryToken(Vote), useValue: {} },
+        {
+          provide: getRepositoryToken(PollOption),
+          useValue: {
+            create: jest.fn(),
+            save: jest.fn(),
+          },
+        },
+        {
+          provide: getRepositoryToken(Vote),
+          useValue: {},
+        },
       ],
     }).compile();
 
     service = module.get<PollsService>(PollsService);
-    resultsService = module.get<ResultsService>(ResultsService);
     pollRepository = module.get(getRepositoryToken(Poll));
     optionRepository = module.get(getRepositoryToken(PollOption));
-    voteRepository = module.get(getRepositoryToken(Vote));
   });
 
-  it('should be defined', () => {
-    expect(service).toBeDefined();
-    expect(resultsService).toBeDefined();
-    expect(pollRepository).toBeDefined();
-    expect(optionRepository).toBeDefined();
-    expect(voteRepository).toBeDefined();
+  it('should create a poll with options', async () => {
+    const dto: CreatePollDto = {
+      question: 'Best JS runtime?',
+      options: ['Node', 'Deno'],
+    };
+
+    const savedPoll = { id: 'p1', question: dto.question } as Poll;
+
+    pollRepository.create.mockReturnValue({ question: dto.question } as any);
+    pollRepository.save.mockResolvedValue(savedPoll);
+
+    optionRepository.create.mockImplementation((data: any) => data);
+    optionRepository.save.mockImplementation(async (opt: any) => ({
+      id: `opt-${opt.text}`,
+      ...opt,
+    }));
+
+    const result = await service.createPoll(dto);
+
+    expect(pollRepository.create).toHaveBeenCalledWith({ question: dto.question });
+    expect(pollRepository.save).toHaveBeenCalled();
+    expect(optionRepository.create).toHaveBeenCalledTimes(2);
+    expect(optionRepository.save).toHaveBeenCalledTimes(2);
+    expect(result).toMatchObject({
+      id: 'p1',
+      question: dto.question,
+    });
   });
 });
