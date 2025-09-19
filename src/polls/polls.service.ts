@@ -17,50 +17,62 @@ import { PollResponseDto } from './dtos/poll-response.dto';
 import { ResultsService } from './results/results.service';
 import { Subject } from 'rxjs';
 
-// Event for SSE notifications
+// This is what gets sent to real-time subscribers when someone votes
 export interface VoteEvent {
   pollId: string;
-  results: any;
+  results: any; // the updated poll results after the vote
 }
 
 @Injectable()
 export class PollsService {
   private readonly logger = new Logger(PollsService.name);
 
-  // Subject for broadcasting vote events to SSE clients
+  // This broadcasts vote events to anyone listening via Server-Sent Events
+  // Think of it like a radio station that announces "hey, someone just voted!"
   public voteEvents$ = new Subject<VoteEvent>();
 
   constructor(
     @InjectRepository(Poll)
-    private pollRepository: Repository<Poll>,
-    
+    private readonly pollRepository: Repository<Poll>,
+
+    @InjectRepository(PollOption)
+    private readonly optionRepository: Repository<PollOption>,
+
     @InjectRepository(Vote)
-    private dataSource: DataSource,
-    private resultsService: ResultsService,
+    private readonly voteRepository: Repository<Vote>,
+
+    private readonly dataSource: DataSource,
+    private readonly resultsService: ResultsService,
   ) {}
 
-  /*
-   Create a new poll with options
-   Validates that closesAt is in the future and options are unique
+  /**
+   * Creates a brand new poll with all its answer options
+   *
+   * We validate a few things first:
+   * - Poll can't close in the past (that would be weird)
+   * - All options must be unique (no point having "Yes" twice)
+   *
+   * Uses a database transaction so if anything fails, nothing gets saved
    */
   async createPoll(createPollDto: CreatePollDto): Promise<PollResponseDto> {
     this.logger.log(`Creating poll: ${createPollDto.question}`);
 
-    // Validate closesAt is in the future
+    // Make sure they're not trying to close the poll yesterday
     const closesAt = new Date(createPollDto.closesAt);
     if (closesAt <= new Date()) {
       throw new BadRequestException('Poll closing time must be in the future');
     }
 
-    // Validate unique options
+    // Remove duplicate options - using Set to find unique values
     const uniqueOptions = [...new Set(createPollDto.options)];
     if (uniqueOptions.length !== createPollDto.options.length) {
       throw new BadRequestException('Poll options must be unique');
     }
 
-    // Create poll with options in a transaction
+    // Everything looks good, let's save it all in one transaction
+    // If anything fails, the whole thing gets rolled back
     const result = await this.dataSource.transaction(async manager => {
-      // Create the poll
+      // First, create the poll itself
       const poll = manager.create(Poll, {
         question: createPollDto.question,
         closesAt,
@@ -69,7 +81,7 @@ export class PollsService {
 
       const savedPoll = await manager.save(poll);
 
-      // Create poll options
+      // Now create all the answer options for this poll
       const options = createPollDto.options.map(optionText =>
         manager.create(PollOption, {
           text: optionText,
@@ -86,17 +98,92 @@ export class PollsService {
 
     this.logger.log(`Created poll ${result.id} with ${result.options.length} options`);
 
-    return this.mapPollToResponse(result);
+    return this.transformPollForResponse(result);
   }
 
-   /*
-    Cast a vote for a poll option
-    Uses transaction and unique constraint to prevent duplicate votes
+  /**
+   * Gets a single poll by its ID
+   *
+   * Pretty straightforward - find it or throw a 404
+   */
+  async getPoll(pollId: string): Promise<PollResponseDto> {
+    this.logger.log(`Fetching poll: ${pollId}`);
+
+    const poll = await this.pollRepository.findOne({
+      where: { id: pollId },
+      relations: ['options'], // grab the options too
+    });
+
+    if (!poll) {
+      throw new NotFoundException(`Poll with ID ${pollId} not found`);
+    }
+
+    return this.transformPollForResponse(poll);
+  }
+
+  /**
+   * Let someone cast their vote in a poll
+   *
+   * This is where the magic happens. We check:
+   * - Poll exists
+   * - Poll is still open (not closed yet)
+   * - The option they picked actually belongs to this poll
+   * - They haven't voted before (database constraint handles this)
+   *
+   * If everything checks out, we save their vote and tell everyone about it!
    */
   async castVote(pollId: string, voteDto: VoteDto): Promise<{ message: string }> {
     this.logger.log(`User ${voteDto.userUuid} voting for option ${voteDto.optionId} in poll ${pollId}`);
 
-    // Find poll and verify it exists and is open
+    // First, make sure this poll exists and get its options
+    const poll = await this.findPollWithOptions(pollId);
+
+    // Check if voting time has passed
+    this.validatePollIsOpen(poll);
+
+    // Make sure they're voting for a real option in this poll
+    this.validateOptionBelongsToPoll(poll, voteDto.optionId);
+
+    try {
+      // Save the vote in a transaction for safety
+      await this.saveVoteInTransaction(pollId, voteDto);
+
+      this.logger.log(`Vote cast successfully for poll ${pollId}`);
+
+      // Clear any cached results since we have new data
+      this.resultsService.invalidateCache(pollId);
+
+      // Tell everyone listening that we got a new vote!
+      this.broadcastVoteEvent(pollId);
+
+      return { message: 'Vote cast successfully' };
+
+    } catch (error) {
+      return this.handleVoteError(error, voteDto.userUuid, pollId);
+    }
+  }
+
+  /**
+   * Get the current results for a poll
+   *
+   * Just makes sure the poll exists, then delegates to ResultsService
+   * (Single Responsibility - we don't calculate results here)
+   */
+  async getPollResults(pollId: string) {
+    // Quick check that this poll actually exists
+    await this.validatePollExists(pollId);
+
+    // Let the results service handle the complex calculations
+    return this.resultsService.getPollResults(pollId);
+  }
+
+  // --- Private helper methods (the behind-the-scenes stuff) ---
+
+  /**
+   * Finds a poll and includes its options
+   * Throws if not found - no need to return null and check everywhere
+   */
+  private async findPollWithOptions(pollId: string): Promise<Poll> {
     const poll = await this.pollRepository.findOne({
       where: { id: pollId },
       relations: ['options'],
@@ -106,77 +193,93 @@ export class PollsService {
       throw new NotFoundException(`Poll with ID ${pollId} not found`);
     }
 
-    // Check if poll is still open
-    if (new Date() >= poll.closesAt) {
-      throw new UnprocessableEntityException('Poll has closed');
-    }
-
-    // Verify the option belongs to this poll
-    const option = poll.options.find(opt => opt.id === voteDto.optionId);
-    if (!option) {
-      throw new NotFoundException(`Option with ID ${voteDto.optionId} not found in this poll`);
-    }
-
-    try {
-      // Use transaction to ensure consistency
-      await this.dataSource.transaction(async manager => {
-        const vote = manager.create(Vote, {
-          userUuid: voteDto.userUuid,
-          pollId: pollId,
-          optionId: voteDto.optionId,
-        });
-
-        await manager.save(vote);
-      });
-
-      this.logger.log(`Vote cast successfully for poll ${pollId}`);
-
-      // Invalidate cache for this poll
-      this.resultsService.invalidateCache(pollId);
-
-      // Broadcast vote event for SSE
-      this.broadcastVoteEvent(pollId);
-
-      return { message: 'Vote cast successfully' };
-
-    } 
-    catch (error) {
-      // Handle duplicate vote constraint violation
-      if (error.code === 'SQLITE_CONSTRAINT_UNIQUE' || error.message.includes('UNIQUE constraint failed')) {
-        this.logger.warn(`Duplicate vote attempt by user ${voteDto.userUuid} for poll ${pollId}`);
-        throw new ConflictException('User has already voted in this poll');
-      }
-
-      this.logger.error(`Error casting vote: ${error.message}`, error.stack);
-      throw error;
-    }
+    return poll;
   }
 
-  // Get poll results (delegates to ResultsService)
-  async getPollResults(pollId: string) {
-    // Verify poll exists
+  /**
+   * Quick existence check for a poll
+   * Used when we just need to verify it exists but don't need the data
+   */
+  private async validatePollExists(pollId: string): Promise<void> {
     const poll = await this.pollRepository.findOne({ where: { id: pollId } });
     if (!poll) {
       throw new NotFoundException(`Poll with ID ${pollId} not found`);
     }
-
-    return this.resultsService.getPollResults(pollId);
   }
 
-  
-  // Broadcast vote event to SSE subscribers
+  /**
+   * Makes sure the poll hasn't closed yet
+   * Nobody likes late voters! (Well, actually we just can't allow it)
+   */
+  private validatePollIsOpen(poll: Poll): void {
+    if (new Date() >= poll.closesAt) {
+      throw new UnprocessableEntityException('Poll has closed');
+    }
+  }
+
+  /**
+   * Verifies the option they want to vote for actually exists in this poll
+   * Prevents people from voting for options from different polls
+   */
+  private validateOptionBelongsToPoll(poll: Poll, optionId: string): void {
+    const option = poll.options.find(opt => opt.id === optionId);
+    if (!option) {
+      throw new NotFoundException(`Option with ID ${optionId} not found in this poll`);
+    }
+  }
+
+  /**
+   * Saves the vote safely in a database transaction
+   * If this fails, nothing gets committed
+   */
+  private async saveVoteInTransaction(pollId: string, voteDto: VoteDto): Promise<void> {
+    await this.dataSource.transaction(async manager => {
+      const vote = manager.create(Vote, {
+        userUuid: voteDto.userUuid,
+        pollId: pollId,
+        optionId: voteDto.optionId,
+      });
+
+      await manager.save(vote);
+    });
+  }
+
+  /**
+   * Handles errors when someone tries to vote
+   * Mainly catches duplicate votes (someone voting twice)
+   */
+  private handleVoteError(error: any, userUuid: string, pollId: string): never {
+    // Check if this is a "you already voted" error
+    if (error.code === 'SQLITE_CONSTRAINT_UNIQUE' || error.message.includes('UNIQUE constraint failed')) {
+      this.logger.warn(`Duplicate vote attempt by user ${userUuid} for poll ${pollId}`);
+      throw new ConflictException('User has already voted in this poll');
+    }
+
+    // Something else went wrong - log it and re-throw
+    this.logger.error(`Error casting vote: ${error.message}`, error.stack);
+    throw error;
+  }
+
+  /**
+   * Tells everyone subscribed to real-time updates that we got a new vote
+   * Gets the latest results and broadcasts them via Server-Sent Events
+   */
   private async broadcastVoteEvent(pollId: string): Promise<void> {
     try {
       const results = await this.resultsService.getPollResults(pollId);
       this.voteEvents$.next({ pollId, results });
     } catch (error) {
+      // Don't fail the vote if broadcasting fails - that would be annoying
       this.logger.error(`Error broadcasting vote event for poll ${pollId}: ${error.message}`);
     }
   }
 
 
-  // Map Poll entity to response DTO
-  private mapPollToResponse(poll: Poll): PollResponseDto {
+  /**
+   * Converts a Poll entity into the format our API returns
+   * Keeps internal database structure separate from what users see
+   */
+  private transformPollForResponse(poll: Poll): PollResponseDto {
     return {
       id: poll.id,
       question: poll.question,
