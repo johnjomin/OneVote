@@ -1,6 +1,7 @@
 import {
   Controller,
   Post,
+  Get,
   Param,
   Body,
   HttpCode,
@@ -48,8 +49,8 @@ export class PollsController {
     return this.pollsService.createPoll(createPollDto);
   }
 
-  /**
-   * Cast a vote in a poll
+  /*
+    Cast a vote in a poll
    */
   @Post(':id/votes')
   @HttpCode(HttpStatus.OK)
@@ -94,5 +95,37 @@ export class PollsController {
   ): Promise<{ message: string }> {
     this.logger.log(`POST /polls/${pollId}/votes - User ${voteDto.userUuid} voting for option ${voteDto.optionId}`);
     return this.pollsService.castVote(pollId, voteDto);
+  }
+
+  /*
+   Get poll results with vote counts
+   */
+  @Get(':id/results')
+  @ApiOperation({
+    summary: 'Get poll results',
+    description: 'Returns vote counts, percentages, and velocity metrics. May be hidden until poll closes.',
+  })
+  @ApiParam({
+    name: 'id',
+    description: 'Poll UUID',
+    example: '123e4567-e89b-12d3-a456-426614174000',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Poll results retrieved successfully',
+    schema: {
+      oneOf: [
+        { $ref: '#/components/schemas/PollResultsDto' },
+        { $ref: '#/components/schemas/HiddenResultsDto' },
+      ],
+    },
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Poll not found',
+  })
+  async getPollResults(@Param('id', ParseUUIDPipe) pollId: string): Promise<PollResultsDto | HiddenResultsDto> {
+    this.logger.log(`GET /polls/${pollId}/results - Fetching poll results`);
+    return this.pollsService.getPollResults(pollId);
   }
 }

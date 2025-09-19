@@ -1,4 +1,4 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class PollOptionResponseDto {
   @ApiProperty({
@@ -95,18 +95,4 @@ export class PollResultsDto {
     example: 2.4,
   })
   voteVelocityPerMinLast5: number;
-}
-
-export class HiddenResultsDto {
-  @ApiProperty({
-    description: 'Indicates results are hidden',
-    example: true,
-  })
-  hidden: boolean;
-
-  @ApiProperty({
-    description: 'When results will be revealed (ISO timestamp)',
-    example: '2024-12-31T23:59:59.000Z',
-  })
-  closesAt: string;
 }

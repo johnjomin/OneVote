@@ -14,6 +14,7 @@ import { Vote } from './entities/vote.entity';
 import { CreatePollDto } from './dtos/create-poll.dto';
 import { VoteDto } from './dtos/vote.dto';
 import { PollResponseDto } from './dtos/poll-response.dto';
+import { ResultsService } from './results/results.service';
 import { Subject } from 'rxjs';
 
 // Event for SSE notifications
@@ -35,6 +36,7 @@ export class PollsService {
     
     @InjectRepository(Vote)
     private dataSource: DataSource,
+    private resultsService: ResultsService,
   ) {}
 
   /*
@@ -142,6 +144,19 @@ export class PollsService {
       this.logger.error(`Error casting vote: ${error.message}`, error.stack);
       throw error;
     }
+  }
+
+  /**
+   * Get poll results (delegates to ResultsService)
+   */
+  async getPollResults(pollId: string) {
+    // Verify poll exists
+    const poll = await this.pollRepository.findOne({ where: { id: pollId } });
+    if (!poll) {
+      throw new NotFoundException(`Poll with ID ${pollId} not found`);
+    }
+
+    return this.resultsService.getPollResults(pollId);
   }
 
 
