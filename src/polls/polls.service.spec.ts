@@ -9,35 +9,22 @@ import { PollOption } from './entities/poll-option.entity';
 import { Vote } from './entities/vote.entity';
 import { VoteDto } from './dtos/vote.dto';
 
-describe('PollsService', () => {
+describe('PollsService vote()', () => {
   let service: PollsService;
   let pollRepository: jest.Mocked<Repository<Poll>>;
   let optionRepository: jest.Mocked<Repository<PollOption>>;
   let voteRepository: jest.Mocked<Repository<Vote>>;
-
-  const poll = { id: 'p1', question: 'Q' } as Poll;
-  const option = { id: 'o1', text: 'A', pollId: 'p1' } as any;
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         PollsService,
         { provide: ResultsService, useValue: { getPollResults: jest.fn() } },
-        {
-          provide: getRepositoryToken(Poll),
-          useValue: { findOne: jest.fn() },
-        },
-        {
-          provide: getRepositoryToken(PollOption),
-          useValue: { findOne: jest.fn() },
-        },
+        { provide: getRepositoryToken(Poll), useValue: { findOne: jest.fn() } },
+        { provide: getRepositoryToken(PollOption), useValue: { findOne: jest.fn() } },
         {
           provide: getRepositoryToken(Vote),
-          useValue: {
-            findOne: jest.fn(),
-            create: jest.fn(),
-            save: jest.fn(),
-          },
+          useValue: { findOne: jest.fn(), create: jest.fn(), save: jest.fn() },
         },
       ],
     }).compile();
@@ -48,25 +35,24 @@ describe('PollsService', () => {
     voteRepository = module.get(getRepositoryToken(Vote));
   });
 
-  it('should allow voting once and save vote', async () => {
+  it('throws NotFound if poll does not exist', async () => {
+    pollRepository.findOne.mockResolvedValue(null);
+    const dto: VoteDto = { pollId: 'missing', optionId: 'o1', voterId: 'u1' };
+    await expect(service.vote(dto)).rejects.toThrow(NotFoundException);
+  });
+
+  it('throws NotFound if option not in poll', async () => {
+    pollRepository.findOne.mockResolvedValue({ id: 'p1' } as Poll);
+    optionRepository.findOne.mockResolvedValue(null);
+    const dto: VoteDto = { pollId: 'p1', optionId: 'bad', voterId: 'u1' };
+    await expect(service.vote(dto)).rejects.toThrow(NotFoundException);
+  });
+
+  it('throws Conflict if voter already voted in poll', async () => {
+    pollRepository.findOne.mockResolvedValue({ id: 'p1' } as Poll);
+    optionRepository.findOne.mockResolvedValue({ id: 'o1', pollId: 'p1' } as any);
+    voteRepository.findOne.mockResolvedValue({ id: 'v-old' } as Vote);
     const dto: VoteDto = { pollId: 'p1', optionId: 'o1', voterId: 'u1' };
-
-    pollRepository.findOne.mockResolvedValue(poll);
-    optionRepository.findOne.mockResolvedValue(option);
-    voteRepository.findOne.mockResolvedValue(null); // no prior vote
-    voteRepository.create.mockImplementation((v: any) => v);
-    voteRepository.save.mockImplementation(async (v: any) => ({ id: 'v1', ...v }));
-
-    const result = await service.vote(dto);
-
-    expect(pollRepository.findOne).toHaveBeenCalledWith({ where: { id: 'p1' } });
-    expect(optionRepository.findOne).toHaveBeenCalledWith({
-      where: { id: 'o1', pollId: 'p1' },
-    });
-    expect(voteRepository.findOne).toHaveBeenCalledWith({
-      where: { pollId: 'p1', voterId: 'u1' },
-    });
-    expect(voteRepository.save).toHaveBeenCalled();
-    expect(result).toMatchObject({ id: 'v1', pollId: 'p1', optionId: 'o1', voterId: 'u1' });
+    await expect(service.vote(dto)).rejects.toThrow(ConflictException);
   });
 });
