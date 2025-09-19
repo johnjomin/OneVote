@@ -24,9 +24,34 @@ describe('ResultsService', () => {
     voteRepo = module.get(getRepositoryToken(Vote));
   });
 
-  it('wires up', () => {
-    expect(service).toBeDefined();
-    expect(pollRepo.findOne).toBeDefined();
-    expect(voteRepo.find).toBeDefined();
+  describe('getPollResults', () => {
+    it('should return computed results for visible poll', async () => {
+      const pollId = 'poll1';
+      const poll = {
+        id: pollId,
+        hideResultsUntilClose: false,
+        closesAt: new Date(Date.now() - 1000),
+        options: [{ id: 'a', label: 'A' }, { id: 'b', label: 'B' }],
+      } as unknown as Poll;
+
+      (pollRepo.findOne as any).mockResolvedValue(poll);
+      (voteRepo.find as any).mockResolvedValue([
+        { pollId, optionId: 'a' },
+        { pollId, optionId: 'a' },
+        { pollId, optionId: 'b' },
+      ] as Vote[]);
+
+      const res: any = await service.getPollResults(pollId);
+
+      expect(res.pollId).toBe(pollId);
+      expect(res.totalVotes).toBe(3);
+      expect(res.options).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ optionId: 'a', votes: 2, percentage: 67 }),
+          expect.objectContaining({ optionId: 'b', votes: 1, percentage: 33 }),
+        ]),
+      );
+      expect(res.hidden).toBe(false);
+    });
   });
 });
