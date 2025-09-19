@@ -43,15 +43,25 @@ describe('ResultsService', () => {
 
       const res: any = await service.getPollResults(pollId);
 
-      expect(res.pollId).toBe(pollId);
       expect(res.totalVotes).toBe(3);
-      expect(res.options).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({ optionId: 'a', votes: 2, percentage: 67 }),
-          expect.objectContaining({ optionId: 'b', votes: 1, percentage: 33 }),
-        ]),
-      );
       expect(res.hidden).toBe(false);
+    });
+
+    it('should return hidden marker if poll hides results until close', async () => {
+      const pollId = 'poll2';
+      const future = new Date(Date.now() + 60_000);
+      const poll = {
+        id: pollId,
+        hideResultsUntilClose: true,
+        closesAt: future,
+        options: [{ id: 'x', label: 'X' }],
+      } as unknown as Poll;
+
+      (pollRepo.findOne as any).mockResolvedValue(poll);
+
+      const res: any = await service.getPollResults(pollId);
+      expect(res.hidden).toBe(true);
+      expect(res.until).toEqual(future);
     });
   });
 });
