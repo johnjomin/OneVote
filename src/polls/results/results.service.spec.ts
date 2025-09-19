@@ -42,11 +42,37 @@ describe('ResultsService', () => {
       ] as Vote[]);
 
       const r1: any = await service.getPollResults(pollId);
+      expect(r1.pollId).toBe(pollId);
       expect(r1.totalVotes).toBe(3);
+      expect(r1.hidden).toBe(false);
+      expect(r1.options).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ optionId: 'a', votes: 2 }),
+          expect.objectContaining({ optionId: 'b', votes: 1 }),
+        ]),
+      );
 
+      // mutate repo return; cache should keep old value
       (voteRepo.find as any).mockResolvedValue([{ pollId, optionId: 'b' }] as Vote[]);
       const r2: any = await service.getPollResults(pollId);
-      expect(r2.totalVotes).toBe(3); // cache hit
+      expect(r2.totalVotes).toBe(3);
+    });
+
+    it('should return hidden marker if poll hides results until close', async () => {
+      const pollId = 'poll2';
+      const future = new Date(Date.now() + 60_000);
+      const poll = {
+        id: pollId,
+        hideResultsUntilClose: true,
+        closesAt: future,
+        options: [{ id: 'x', label: 'X' }],
+      } as unknown as Poll;
+
+      (pollRepo.findOne as any).mockResolvedValue(poll);
+
+      const res: any = await service.getPollResults(pollId);
+      expect(res.hidden).toBe(true);
+      expect(res.until).toEqual(future);
     });
   });
 
