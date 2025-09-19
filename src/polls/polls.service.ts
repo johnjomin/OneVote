@@ -1,0 +1,97 @@
+import {
+  Injectable,
+  Logger,
+  BadRequestException,
+} from '@nestjs/common';
+import { InjectRepository, DataSource} from '@nestjs/typeorm';
+import { Poll } from './entities/poll.entity';
+import { PollOption } from './entities/poll-option.entity';
+import { Vote } from './entities/vote.entity';
+import { CreatePollDto } from './dtos/create-poll.dto';
+import { PollResponseDto } from './dtos/poll-response.dto';
+import { Subject } from 'rxjs';
+
+// Event for SSE notifications
+export interface VoteEvent {
+  pollId: string;
+  results: any;
+}
+
+@Injectable()
+export class PollsService {
+  private readonly logger = new Logger(PollsService.name);
+
+  // Subject for broadcasting vote events to SSE clients
+  public voteEvents$ = new Subject<VoteEvent>();
+
+  constructor(@InjectRepository(Vote)
+    private dataSource: DataSource,
+  ) {}
+
+  /*
+   Create a new poll with options
+   Validates that closesAt is in the future and options are unique
+   */
+  async createPoll(createPollDto: CreatePollDto): Promise<PollResponseDto> {
+    this.logger.log(`Creating poll: ${createPollDto.question}`);
+
+    // Validate closesAt is in the future
+    const closesAt = new Date(createPollDto.closesAt);
+    if (closesAt <= new Date()) {
+      throw new BadRequestException('Poll closing time must be in the future');
+    }
+
+    // Validate unique options
+    const uniqueOptions = [...new Set(createPollDto.options)];
+    if (uniqueOptions.length !== createPollDto.options.length) {
+      throw new BadRequestException('Poll options must be unique');
+    }
+
+    // Create poll with options in a transaction
+    const result = await this.dataSource.transaction(async manager => {
+      // Create the poll
+      const poll = manager.create(Poll, {
+        question: createPollDto.question,
+        closesAt,
+        hideResultsUntilClose: createPollDto.hideResultsUntilClose || false,
+      });
+
+      const savedPoll = await manager.save(poll);
+
+      // Create poll options
+      const options = createPollDto.options.map(optionText =>
+        manager.create(PollOption, {
+          text: optionText,
+          poll: savedPoll,
+          pollId: savedPoll.id,
+        })
+      );
+
+      const savedOptions = await manager.save(options);
+      savedPoll.options = savedOptions;
+
+      return savedPoll;
+    });
+
+    this.logger.log(`Created poll ${result.id} with ${result.options.length} options`);
+
+    return this.mapPollToResponse(result);
+  }
+
+  /**
+   * Map Poll entity to response DTO
+   */
+  private mapPollToResponse(poll: Poll): PollResponseDto {
+    return {
+      id: poll.id,
+      question: poll.question,
+      options: poll.options.map(option => ({
+        id: option.id,
+        text: option.text,
+      })),
+      closesAt: poll.closesAt.toISOString(),
+      hideResultsUntilClose: poll.hideResultsUntilClose,
+      createdAt: poll.createdAt.toISOString(),
+    };
+  }
+}
