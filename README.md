@@ -64,7 +64,7 @@ This opens a Server-Sent Events connection that pushes result updates whenever s
 
 ## Database in plain words
 
-We keep it simple with three main tables:
+Keep it simple with three main tables:
 
 - polls -> holds the question and settings
 - poll_options -> the possible answers
@@ -74,11 +74,11 @@ We keep it simple with three main tables:
 
 ## How to stop double votes
 
-Here's how we avoid double-votes and race conditions:
+Here's how to avoid double-votes and race conditions:
 
 - Database has a unique rule: one user ID per poll ie (pollId, userUuid)
 - Votes are saved inside a transaction (safe block).
-- If someone tries to sneak in a second vote -> we return 409 Conflict (“you already voted”).
+- If someone tries to sneak in a second vote -> return 409 Conflict (“you already voted”).
 
 **In plain English:** If two people with the same user ID try to vote at exactly the same time, the database will only let one vote through. 
 The second person gets a "you already voted" message.
@@ -87,20 +87,20 @@ This approach is simple, fast, and reliable. For a small to medium voting app, i
 
 ## Caching
 
-- We cache poll results for 10 seconds so the database doesn’t get hammered.
-- Don’t worry: when a new vote comes in, we refresh the cache right away ie RESULTS_CACHE_TTL_SECONDS
+- Cache poll results for 10 seconds so the database doesn’t get hammered.
+- Don’t worry: when a new vote comes in, refresh the cache right away ie RESULTS_CACHE_TTL_SECONDS
 - Trade-off: if the server restarts, cache is empty until the first request — but that’s fine.
 
 **Trade-off:** If you restart the server, cached results disappear. But they rebuild automatically on first request, so no big deal
 
 ## Architectural Decisions and Tradeoffs
 
-## Why we built it this way???
+## Why built it this way???
 - NestJS -> makes APIs neat and organized.
 - TypeORM -> easy way to save stuff in the database.
 - SQLite -> just works, no setup. Perfect for demos.
 
-### Error codes we use:
+### Error codes app use:
 - 400 = bad input (you sent nonsense)
 - 404 = poll or option not found
 - 409 = you already voted
@@ -122,7 +122,7 @@ This approach is simple, fast, and reliable. For a small to medium voting app, i
 - Database checks for double votes
 - Transactions = safe writes
 
-### If we ever go “viral” -> thats a BIG IF:
+### If ever go “viral” -> thats a BIG IF:
 
 - Switch SQLite -> PostgreSQL
 - Use Redis for shared caching
