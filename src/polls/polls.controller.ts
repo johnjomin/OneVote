@@ -28,7 +28,7 @@ export class PollsController {
 
   constructor(private readonly pollsService: PollsService) {}
 
-  //Creates a new poll :)
+  // Creates a new poll
   @Post()
   @ApiOperation({
     summary: 'Create a new poll',
@@ -49,9 +49,7 @@ export class PollsController {
     return this.pollsService.createPoll(createPollDto);
   }
 
-  /*
-    Cast a vote in a poll
-   */
+  // Cast a vote in a poll
   @Post(':id/votes')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -97,9 +95,32 @@ export class PollsController {
     return this.pollsService.castVote(pollId, voteDto);
   }
 
-  /*
-   Get poll results with vote counts
-   */
+  // Get a single poll by ID
+  @Get(':id')
+  @ApiOperation({
+    summary: 'Get a poll by ID',
+    description: 'Returns poll details including question, options, and closing time',
+  })
+  @ApiParam({
+    name: 'id',
+    description: 'Poll UUID',
+    example: '123e4567-e89b-12d3-a456-426614174000',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Poll retrieved successfully',
+    type: PollResponseDto,
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Poll not found',
+  })
+  async getPoll(@Param('id', ParseUUIDPipe) pollId: string): Promise<PollResponseDto> {
+    this.logger.log(`GET /polls/${pollId} - Fetching poll details`);
+    return this.pollsService.getPoll(pollId);
+  }
+
+  // Get poll results with vote counts
   @Get(':id/results')
   @ApiOperation({
     summary: 'Get poll results',
